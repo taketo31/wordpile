@@ -249,45 +249,8 @@ const LANG_NOTE = {
     "Write each definition and distractor as a short English gloss followed by a Japanese translation in parentheses. Keep the example sentence in English.",
 };
 
-async function lookupChunk(items, lang) {
-  const prompt = `You are building multiple-choice vocabulary cards for an advanced non-native English speaker.
-Items may be single words OR multi-word expressions / collocations (e.g. "hand in hand", "roll out"). Treat a multi-word item as one unit and define the whole expression, not its parts.
-
-For each item give:
-- "pos": part of speech or type (noun / verb / adjective / adverb / phrasal verb / idiom / collocation)
-- "definition": the meaning it carries in the given context, max 12 words
-- "example": one natural example sentence using the item, max 16 words
-- "distractors": exactly 3 WRONG meanings. Each must be the genuine meaning of some other real word or expression, similar in length and register to the correct definition, and clearly not a synonym of it.
-
-${LANG_NOTE[lang]}
-
-Items:
-${items
-  .map((it, i) => `${i + 1}. item: ${it.word} | context: ${it.context || "(none)"}`)
-  .join("\n")}
-
-Respond with ONLY a JSON array and nothing else. No markdown fences, no commentary.
-[{"word":"...","pos":"...","definition":"...","example":"...","distractors":["...","...","..."]}]`;
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1000,
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-  const data = await res.json();
-  const text = (data.content || [])
-    .map((c) => (c.type === "text" ? c.text : ""))
-    .join("");
-  const a = text.indexOf("[");
-  const b = text.lastIndexOf("]");
-  if (a === -1 || b === -1) throw new Error("bad response");
-  return JSON.parse(text.slice(a, b + 1));
-}
-
+async function lookupChunk(items, lang) { const results = await Promise.all(items.map(async (it) => { const word = (it.word || "").trim(); if (!word || word.includes(" ")) { return { word: it.word, pos: "", definition: "", example: "", distractors: [] }; } try { const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word.toLowerCase())}`); if (!res.ok) throw new Error("not found"); const data = await res.json(); const entry = data[0] || {}; const meaning = (entry.meanings || [])[0] || {}; const def = (meaning.definitions || [])[0] || {}; return { word: it.word, pos: meaning.partOfSpeech || "", definition: def.definition || "", example: def.example || "", distractors: [] }; } catch (e) { return { word: it.word, pos: "", definition: "", example: "", distractors: [] }; } })); return results; }
+    
 /* ------------------------------------------------------------------ */
 /*  Bits                                                               */
 /* ------------------------------------------------------------------ */
