@@ -249,7 +249,37 @@ const LANG_NOTE = {
     "Write each definition and distractor as a short English gloss followed by a Japanese translation in parentheses. Keep the example sentence in English.",
 };
 
-async function lookupChunk(items, lang) { const results = await Promise.all(items.map(async (it) => { const word = (it.word || "").trim(); if (!word || word.includes(" ")) { return { word: it.word, pos: "", definition: "", example: "", distractors: [] }; } try { const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word.toLowerCase())}`); if (!res.ok) throw new Error("not found"); const data = await res.json(); const entry = data[0] || {}; const meaning = (entry.meanings || [])[0] || {}; const def = (meaning.definitions || [])[0] || {}; return { word: it.word, pos: meaning.partOfSpeech || "", definition: def.definition || "", example: def.example || "", distractors: [] }; } catch (e) { return { word: it.word, pos: "", definition: "", example: "", distractors: [] }; } })); return results; }
+const DISTRACTOR_BANK = { noun: ["A container for storing liquids.", "A wild animal that hunts at night.", "A tool used for cutting wood.", "A large body of water surrounded by land.", "A piece of furniture used for sitting.", "A structure built to cross a river.", "A document proving ownership of property.", "A small insect that lives in colonies.", "A public place where goods are sold.", "A period of ten years.", "A soft material used for cleaning.", "A room where food is prepared."], verb: ["To move quickly on foot.", "To make a loud, sudden noise.", "To join two things together.", "To remove dirt from a surface.", "To express strong disapproval of something.", "To change from solid to liquid.", "To arrange items in a particular order.", "To keep something safe from harm.", "To reduce the size of something.", "To copy someone else's behavior.", "To search for something carefully.", "To give someone information about a plan."], adjective: ["Extremely bright or shining.", "Lacking any noticeable flavor.", "Difficult to understand or explain.", "Having a pleasant, sweet smell.", "Not able to be trusted.", "Occurring very rarely.", "Full of energy and enthusiasm.", "Easily broken or damaged.", "Showing great attention to detail.", "Free from dirt or impurities.", "Extremely large in size or amount.", "Lacking confidence or courage."], adverb: ["In a careful and cautious manner.", "Without any interruption or pause.", "In a way that shows great skill.", "At a very slow pace.", "With great force or intensity.", "In a manner that is hard to notice.", "Happening again after a period of time.", "In a friendly and welcoming way.", "Without any clear purpose or direction.", "In an unexpected or surprising way."], phrase: ["To give up on something completely.", "To finally understand something confusing.", "To arrive somewhere much later than planned.", "To fail at something after trying hard.", "To become friends with someone quickly.", "To spend money carelessly and quickly.", "To finish a task just in time.", "To avoid dealing with a problem.", "To reveal a secret by accident.", "To work together toward a common goal."], other: ["A feeling of strong excitement.", "A word used to greet someone.", "A sound expressing sudden pain.", "A term used to link two ideas.", "A word replacing a person's name.", "A short word showing location or direction."] };
+    function pickDistractors(pos, isPhrase, correctDef) {
+        const p = (pos || "").toLowerCase();
+        const key = isPhrase ? "phrase" : p.includes("noun") ? "noun" : p.includes("verb") ? "verb" : p.includes("adjective") ? "adjective" : p.includes("adverb") ? "adverb" : "other";
+        const bank = DISTRACTOR_BANK[key] || DISTRACTOR_BANK.other;
+        const pool = bank.filter((d) => d !== correctDef);
+        const shuffled = [...pool].sort(() => Math.random() - 0.5);
+        return shuffled.slice(0, 3);
+    }
+  async function lookupChunk(items, lang) {
+      const results = await Promise.all(items.map(async (it) => {
+            const word = (it.word || "").trim();
+            const isPhrase = !word || word.includes(" ");
+            if (!word || isPhrase) {
+                    return { word: it.word, pos: "", definition: "", example: "", distractors: pickDistractors("", true, "") };
+            }
+                  try {
+                          const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word.toLowerCase())}`);
+                          if (!res.ok) throw new Error("not found");
+                                  const data = await res.json();
+                          const entry = data[0] || {};
+                          const meaning = (entry.meanings || [])[0] || {};
+                          const def = (meaning.definitions || [])[0] || {};
+                          const definition = def.definition || "";
+                          return { word: it.word, pos: meaning.partOfSpeech || "", definition, example: def.example || "", distractors: pickDistractors(meaning.partOfSpeech || "", false, definition) };
+                  } catch (e) {
+                          return { word: it.word, pos: "", definition: "", example: "", distractors: [] };
+                  }
+      }));
+      return results;
+  }
     
 /* ------------------------------------------------------------------ */
 /*  Bits                                                               */
