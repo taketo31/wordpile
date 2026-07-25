@@ -1097,6 +1097,7 @@ const options = useMemo(() => {
     setChosen(opt);
     if (opt.ok) {
       update(cur.id, { streak: cur.streak + 1, right: cur.right + 1 });
+      setShowCtx(true);
       setSession((x) => ({ ...x, right: x.right + 1 }));
     } else {
       update(cur.id, { streak: 0, wrong: cur.wrong + 1 });
