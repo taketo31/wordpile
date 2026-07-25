@@ -277,7 +277,15 @@ const entry = data[0] || {};
                                               let example = (defs[0] && defs[0].example) || "";
                                               if (!example) { for (const d of defs) { if (d.example) { example = d.example; break; } } }
                                               if (!example) { for (const m of meanings) { for (const d of (m.definitions || [])) { if (d.example) { example = d.example; break; } } if (example) break; } }
-                                              return { word: it.word, pos: primary.partOfSpeech || "", definition, example, distractors: pickDistractors(primary.partOfSpeech || "", false, definition) };
+                                              const senseDefs = [];
+                                              meanings.forEach((m) => (m.definitions || []).forEach((d) => { if (d.definition && d.definition !== definition && !senseDefs.includes(d.definition)) senseDefs.push(d.definition); }));
+                                              const shuffledSenses = senseDefs.sort(() => Math.random() - 0.5);
+                                              let distractors = shuffledSenses.slice(0, 3);
+                                              if (distractors.length < 3) {
+                                                                            const fill = pickDistractors(primary.partOfSpeech || "", false, definition).filter((d) => !distractors.includes(d));
+                                                                            distractors = distractors.concat(fill).slice(0, 3);
+                                              }
+                                              return { word: it.word, pos: primary.partOfSpeech || "", definition, example, distractors };
                   } catch (e) {
                           return { word: it.word, pos: "", definition: "", example: "", distractors: [] };
                   }
