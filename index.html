@@ -269,11 +269,15 @@ const DISTRACTOR_BANK = { noun: ["A container for storing liquids.", "A wild ani
                           const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word.toLowerCase())}`);
                           if (!res.ok) throw new Error("not found");
                                   const data = await res.json();
-                          const entry = data[0] || {};
-                          const meaning = (entry.meanings || [])[0] || {};
-                          const def = (meaning.definitions || [])[0] || {};
-                          const definition = def.definition || "";
-                          return { word: it.word, pos: meaning.partOfSpeech || "", definition, example: def.example || "", distractors: pickDistractors(meaning.partOfSpeech || "", false, definition) };
+const entry = data[0] || {};
+                                              const meanings = entry.meanings || [];
+                                              const primary = meanings[0] || {};
+                                              const defs = primary.definitions || [];
+                                              const definition = (defs[0] && defs[0].definition) || "";
+                                              let example = (defs[0] && defs[0].example) || "";
+                                              if (!example) { for (const d of defs) { if (d.example) { example = d.example; break; } } }
+                                              if (!example) { for (const m of meanings) { for (const d of (m.definitions || [])) { if (d.example) { example = d.example; break; } } if (example) break; } }
+                                              return { word: it.word, pos: primary.partOfSpeech || "", definition, example, distractors: pickDistractors(primary.partOfSpeech || "", false, definition) };
                   } catch (e) {
                           return { word: it.word, pos: "", definition: "", example: "", distractors: [] };
                   }
@@ -1066,18 +1070,19 @@ function DrillView({ words, update, autoSay, setAutoSay, retryLookup, busy, goDe
     if (cur && (autoSay || audioFirst)) say(cur.word);
   }, [curId]); // eslint-disable-line
 
-  const options = useMemo(() => {
-    if (!cur) return [];
-    let wrongs = (cur.distractors || []).filter(Boolean).slice(0, 3);
-    if (wrongs.length < 3) {
-      const others = words.filter((w) => w.id !== cur.id && w.definition).map((w) => w.definition);
-      for (const o of shuffle(others, seed)) {
-        if (wrongs.length >= 3) break;
-        if (!wrongs.includes(o) && o !== cur.definition) wrongs.push(o);
+const options = useMemo(() => {
+      if (!cur) return [];
+      let wrongs = (cur.distractors || []).filter(Boolean).slice(0, 3);
+      if (wrongs.length < 3) {
+              const isPhrase = (cur.word || "").trim().includes(" ");
+              const generated = pickDistractors(cur.pos || "", isPhrase, cur.definition || "");
+              for (const g of generated) {
+                        if (wrongs.length >= 3) break;
+                        if (!wrongs.includes(g) && g !== cur.definition) wrongs.push(g);
+              }
       }
-    }
-    return shuffle([{ t: cur.definition, ok: true }, ...wrongs.map((t) => ({ t, ok: false }))], seed);
-  }, [cur, seed, words]);
+      return shuffle([{ t: cur.definition, ok: true }, ...wrongs.map((t) => ({ t, ok: false }))], seed);
+}, [cur, seed]);
 
   const answer = (opt) => {
     if (chosen || !cur) return;
