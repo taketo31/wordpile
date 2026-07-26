@@ -269,23 +269,50 @@ const DISTRACTOR_BANK = { noun: ["A container for storing liquids.", "A wild ani
                           const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word.toLowerCase())}`);
                           if (!res.ok) throw new Error("not found");
                                   const data = await res.json();
-const entry = data[0] || {};
-                                              const meanings = entry.meanings || [];
-                                              const primary = meanings[0] || {};
-                                              const defs = primary.definitions || [];
-                                              const definition = (defs[0] && defs[0].definition) || "";
-                                              let example = (defs[0] && defs[0].example) || "";
-                                              if (!example) { for (const d of defs) { if (d.example) { example = d.example; break; } } }
-                                              if (!example) { for (const m of meanings) { for (const d of (m.definitions || [])) { if (d.example) { example = d.example; break; } } if (example) break; } }
-                                              const senseDefs = [];
-                                              meanings.forEach((m) => (m.definitions || []).forEach((d) => { if (d.definition && d.definition !== definition && !senseDefs.includes(d.definition)) senseDefs.push(d.definition); }));
-                                              const shuffledSenses = senseDefs.sort(() => Math.random() - 0.5);
-                                              let distractors = shuffledSenses.slice(0, 3);
-                                              if (distractors.length < 3) {
-                                                                            const fill = pickDistractors(primary.partOfSpeech || "", false, definition).filter((d) => !distractors.includes(d));
-                                                                            distractors = distractors.concat(fill).slice(0, 3);
-                                              }
-                                              return { word: it.word, pos: primary.partOfSpeech || "", definition, example, distractors };
+const entries = Array.isArray(data) ? data.slice() : [];
+                                    entries.sort((a, b) => {
+                                                        const scoreA = (a.meanings || []).reduce((s, m) => s + (m.definitions || []).length, 0);
+                                                        const scoreB = (b.meanings || []).reduce((s, m) => s + (m.definitions || []).length, 0);
+                                                        return scoreB - scoreA;
+                                    });
+                                    const chosenEntry = entries[0] || {};
+                                    const entryMeanings = chosenEntry.meanings || [];
+                                    const allMeanings = [];
+                                    entries.forEach((e) => (e.meanings || []).forEach((m) => allMeanings.push(m)));
+                                    const isSkippable = (text) => {
+                                                        if (!text) return true;
+                                                        const t = text.trim();
+                                                        if (/^\(?\s*(archaic|obsolete|rare|dated|dialectal|chiefly\s+\w+|nonstandard|informal|slang|derogatory|offensive|vulgar|humorous|poetic|colloquial|regional|uncommon)\b/i.test(t)) return true;
+                                                        const bare = t.replace(/\.$/, "");
+                                                        if (bare.length < 15 && !/\s/.test(bare)) return true;
+                                                        if (new RegExp("^to\\s+" + word.toLowerCase() + "\\.?$", "i").test(t)) return true;
+                                                        return false;
+                                    };
+                                    let primary = entryMeanings[0] || {};
+                                    let definition = "";
+                                    for (const m of entryMeanings) {
+                                                        const d0 = (m.definitions || [])[0];
+                                                        if (d0 && d0.definition && !isSkippable(d0.definition)) { primary = m; definition = d0.definition; break; }
+                                    }
+                                    if (!definition) {
+                                                        const d0 = (entryMeanings[0] && entryMeanings[0].definitions && entryMeanings[0].definitions[0]) || {};
+                                                        primary = entryMeanings[0] || {};
+                                                        definition = d0.definition || "";
+                                    }
+                                    const defs = primary.definitions || [];
+                                    let example = (defs.find((d) => d.definition === definition) || {}).example || "";
+                                    if (!example) { for (const d of defs) { if (d.example) { example = d.example; break; } } }
+                                    if (!example) { for (const m of entryMeanings) { for (const d of (m.definitions || [])) { if (d.example) { example = d.example; break; } } if (example) break; } }
+                                    if (!example) { for (const m of allMeanings) { for (const d of (m.definitions || [])) { if (d.example) { example = d.example; break; } } if (example) break; } }
+                                    const senseDefs = [];
+                                    allMeanings.forEach((m) => (m.definitions || []).forEach((d) => { if (d.definition && d.definition !== definition && !senseDefs.includes(d.definition)) senseDefs.push(d.definition); }));
+                                    const shuffledSenses = senseDefs.sort(() => Math.random() - 0.5);
+                                    let distractors = shuffledSenses.slice(0, 3);
+                                    if (distractors.length < 3) {
+                                                        const fill = pickDistractors(primary.partOfSpeech || "", false, definition).filter((d) => !distractors.includes(d));
+                                                        distractors = distractors.concat(fill).slice(0, 3);
+                                    }
+                                    return { word: it.word, pos: primary.partOfSpeech || "", definition, example, distractors };
                   } catch (e) {
                           return { word: it.word, pos: "", definition: "", example: "", distractors: [] };
                   }
