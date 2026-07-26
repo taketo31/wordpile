@@ -258,92 +258,125 @@ const DISTRACTOR_BANK = { noun: ["A container for storing liquids.", "A wild ani
         const shuffled = [...pool].sort(() => Math.random() - 0.5);
         return shuffled.slice(0, 3);
     }
-  async function lookupChunk(items, lang) {
-      const results = await Promise.all(items.map(async (it) => {
-            const word = (it.word || "").trim();
-            const isPhrase = !word || word.includes(" ");
-            if (!word || isPhrase) {
-                    return { word: it.word, pos: "", definition: "", example: "", distractors: pickDistractors("", true, "") };
-            }
-                  try {
-                          const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word.toLowerCase())}`);
-                          if (!res.ok) throw new Error("not found");
-                                  const data = await res.json();
-const entries = Array.isArray(data) ? data.slice() : [];
-                                    entries.sort((a, b) => {
-                                                        const scoreA = (a.meanings || []).reduce((s, m) => s + (m.definitions || []).length, 0);
-                                                        const scoreB = (b.meanings || []).reduce((s, m) => s + (m.definitions || []).length, 0);
-                                                        return scoreB - scoreA;
-                                    });
-                                    const chosenEntry = entries[0] || {};
-                                    const entryMeanings = chosenEntry.meanings || [];
-                                    const allMeanings = [];
-                                    entries.forEach((e) => (e.meanings || []).forEach((m) => allMeanings.push(m)));
-                                    const isHeaderLike = (t) => /^senses?\s+(referring|relating|pertaining)\s+to\b/i.test(t);
-                                    const isBadDef = (text) => {
-                                                        if (!text) return true;
-                                                        const t = text.trim();
-                                                        if (/^\(?\s*(archaic|obsolete|rare|dated|dialectal|chiefly\s+\w+|nonstandard|informal|slang|derogatory|offensive|vulgar|humorous|poetic|colloquial|regional|uncommon)\b/i.test(t)) return true;
-                                                        const bare = t.replace(/\.$/, "");
-                                                        if (bare.length < 15 && !/\s/.test(bare)) return true;
-                                                        if (new RegExp("^to\\s+" + word.toLowerCase() + "\\.?$", "i").test(t)) return true;
-                                                        return false;
-                                    };
-                                    const bestLocalDef = (m) => {
-                                                        const defsArr = m.definitions || [];
-                                                        let firstReal = null;
-                                                        for (const d of defsArr) {
-                                                                              if (d.definition && isHeaderLike(d.definition.trim())) continue;
-                                                                              firstReal = d;
-                                                                              break;
-                                                        }
-                                                        if (!firstReal) return { def: defsArr[0] || {}, bad: true };
-                                                        return { def: firstReal, bad: isBadDef(firstReal.definition) };
-                                    };
-                                    const candidates = entryMeanings.map((m, idx) => {
-                                                        const r = bestLocalDef(m);
-                                                        return { m, idx, richness: (m.definitions || []).length, bad: r.bad, def: r.def };
-                                    });
-                                    const nonBad = candidates.filter((c) => !c.bad);
-                                    const pool = nonBad.length ? nonBad : candidates;
-                                    const nonVerbPool = pool.filter((c) => c.m.partOfSpeech !== "verb");
-                                    const verbPool = pool.filter((c) => c.m.partOfSpeech === "verb");
-                                    const byRichness = (a, b) => b.richness - a.richness || a.idx - b.idx;
-                                    let chosen;
-                                    if (nonVerbPool.length) {
-                                                        nonVerbPool.sort(byRichness);
-                                                        const bestNonVerb = nonVerbPool[0];
-                                                        if (verbPool.length) {
-                                                                              verbPool.sort(byRichness);
-                                                                              const bestVerb = verbPool[0];
-                                                                              chosen = bestVerb.richness > 1.5 * bestNonVerb.richness ? bestVerb : bestNonVerb;
-                                                        } else chosen = bestNonVerb;
-                                    } else {
-                                                        pool.sort(byRichness);
-                                                        chosen = pool[0] || { m: {}, def: {} };
-                                    }
-                                    const primary = chosen.m || {};
-                                    const definition = (chosen.def && chosen.def.definition) || "";
-                                    const defs = primary.definitions || [];
-                                    let example = (defs.find((d) => d.definition === definition) || {}).example || "";
-                                    if (!example) { for (const d of defs) { if (d.example) { example = d.example; break; } } }
-                                    if (!example) { for (const m of entryMeanings) { for (const d of (m.definitions || [])) { if (d.example) { example = d.example; break; } } if (example) break; } }
-                                    if (!example) { for (const m of allMeanings) { for (const d of (m.definitions || [])) { if (d.example) { example = d.example; break; } } if (example) break; } }
-                                    const senseDefs = [];
-                                    allMeanings.forEach((m) => (m.definitions || []).forEach((d) => { if (d.definition && d.definition !== definition && !senseDefs.includes(d.definition)) senseDefs.push(d.definition); }));
-                                    const shuffledSenses = senseDefs.sort(() => Math.random() - 0.5);
-                                    let distractors = shuffledSenses.slice(0, 3);
-                                    if (distractors.length < 3) {
-                                                        const fill = pickDistractors(primary.partOfSpeech || "", false, definition).filter((d) => !distractors.includes(d));
-                                                        distractors = distractors.concat(fill).slice(0, 3);
-                                    }
-                                    return { word: it.word, pos: primary.partOfSpeech || "", definition, example, distractors };
-                  } catch (e) {
-                          return { word: it.word, pos: "", definition: "", example: "", distractors: [] };
-                  }
-      }));
-      return results;
-  }
+async function lookupChunk(items, lang) {
+        const results = await Promise.all(items.map(async (it) => {
+                      const word = (it.word || "").trim();
+                      const isPhrase = !word || word.includes(" ");
+                      if (!word || isPhrase) {
+                                            return { word: it.word, pos: "", definition: "", fullDefinition: [], example: "", distractors: pickDistractors("", true, "") };
+                      }
+                                          try {
+                                                                      const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word.toLowerCase())}`);
+                                                                      if (!res.ok) throw new Error("not found");
+                                                                                                          const data = await res.json();
+                                                                              const entries = Array.isArray(data) ? data.slice() : [];
+                                                                                entries.sort((a, b) => {
+                                                                                                                                          const scoreA = (a.meanings || []).reduce((s, m) => s + (m.definitions || []).length, 0);
+                                                                                                                                          const scoreB = (b.meanings || []).reduce((s, m) => s + (m.definitions || []).length, 0);
+                                                                                                                                          return scoreB - scoreA;
+                                                                                  });
+                                                                                const chosenEntry = entries[0] || {};
+                                                                                const entryMeanings = chosenEntry.meanings || [];
+                                                                                const allMeanings = [];
+                                                                                entries.forEach((e) => (e.meanings || []).forEach((m) => allMeanings.push(m)));
+                                                                                const isHeaderLike = (t) => /^senses?\s+(referring|relating|pertaining)\s+to\b/i.test(t);
+                                                                                const isBadDef = (text) => {
+                                                                                                                                          if (!text) return true;
+                                                                                                                                                                                                    const t = text.trim();
+                                                                                                                                          if (/^\(?\s*(archaic|obsolete|rare|dated|dialectal|chiefly\s+\w+|nonstandard|informal|slang|derogatory|offensive|vulgar|humorous|poetic|colloquial|regional|uncommon)\b/i.test(t)) return true;
+                                                                                                                                                                                                    const bare = t.replace(/\.$/, "");
+                                                                                                                                          if (bare.length < 15 && !/\s/.test(bare)) return true;
+                                                                                                                                                                                                    if (new RegExp("^to\\s+" + word.toLowerCase() + "\\.?$", "i").test(t)) return true;
+                                                                                                                                                                                                                                                              return false;
+                                                                                  };
+                                                                                const bestLocalDef = (m) => {
+                                                                                                                                          const defsArr = m.definitions || [];
+                                                                                                                                          let firstReal = null;
+                                                                                                                                          for (const d of defsArr) {
+                                                                                                                                                                                                                          if (d.definition && isHeaderLike(d.definition.trim())) continue;
+                                                                                                                                                                                                                                                                                                          firstReal = d;
+                                                                                                                                                                                                                          break;
+                                                                                                                                            }
+                                                                                                                                          if (!firstReal) return { def: defsArr[0] || {}, bad: true };
+                                                                                                                                                                                                    return { def: firstReal, bad: isBadDef(firstReal.definition) };
+                                                                                  };
+                                                                                const candidates = entryMeanings.map((m, idx) => {
+                                                                                                                                          const r = bestLocalDef(m);
+                                                                                                                                          return { m, idx, richness: (m.definitions || []).length, bad: r.bad, def: r.def };
+                                                                                  });
+                                                                                const nonBad = candidates.filter((c) => !c.bad);
+                                                                                const pool = nonBad.length ? nonBad : candidates;
+                                                                                const nonVerbPool = pool.filter((c) => c.m.partOfSpeech !== "verb");
+                                                                                const verbPool = pool.filter((c) => c.m.partOfSpeech === "verb");
+                                                                                const byRichness = (a, b) => b.richness - a.richness || a.idx - b.idx;
+                                                                                let chosen;
+                                                                                if (nonVerbPool.length) {
+                                                                                                                                          nonVerbPool.sort(byRichness);
+                                                                                                                                          const bestNonVerb = nonVerbPool[0];
+                                                                                                                                          if (verbPool.length) {
+                                                                                                                                                                                                                          verbPool.sort(byRichness);
+                                                                                                                                                                                                                          const bestVerb = verbPool[0];
+                                                                                                                                                                                                                          chosen = bestVerb.richness > 1.5 * bestNonVerb.richness ? bestVerb : bestNonVerb;
+                                                                                                                                            } else chosen = bestNonVerb;
+                                                                                  } else {
+                                                                                                                                          pool.sort(byRichness);
+                                                                                                                                          chosen = pool[0] || { m: {}, def: {} };
+                                                                                  }
+                                                                                const primary = chosen.m || {};
+                                                                                const definition = (chosen.def && chosen.def.definition) || "";
+                                                                                const defs = primary.definitions || [];
+                                                                                let example = (defs.find((d) => d.definition === definition) || {}).example || "";
+                                                                                if (!example) { for (const d of defs) { if (d.example) { example = d.example; break; } } }
+                                                                                                                      if (!example) { for (const m of entryMeanings) { for (const d of (m.definitions || [])) { if (d.example) { example = d.example; break; } } if (example) break; } }
+                                                                                                                                                            if (!example) { for (const m of allMeanings) { for (const d of (m.definitions || [])) { if (d.example) { example = d.example; break; } } if (example) break; } }
+                                                                                                                                                                                                  const senseDefs = [];
+                                                                                allMeanings.forEach((m) => (m.definitions || []).forEach((d) => { if (d.definition && d.definition !== definition && !senseDefs.includes(d.definition)) senseDefs.push(d.definition); }));
+                                                                                const shuffledSenses = senseDefs.sort(() => Math.random() - 0.5);
+                                                                                let distractors = shuffledSenses.slice(0, 3);
+                                                                                if (distractors.length < 3) {
+                                                                                                                                          const fill = pickDistractors(primary.partOfSpeech || "", false, definition).filter((d) => !distractors.includes(d));
+                                                                                                                                          distractors = distractors.concat(fill).slice(0, 3);
+                                                                                  }
+                                                                                                                      const posGroups = [];
+                                                                                const posSeen = {};
+                                                                                allMeanings.forEach((m) => {
+                                                                                                                                          const pos = m.partOfSpeech || "";
+                                                                                                                                          if (!pos) return;
+                                                                                                                                                                                                    if (!posSeen[pos]) { posSeen[pos] = []; posGroups.push(pos); }
+                                                                                                                                                                                                                                                              (m.definitions || []).forEach((d) => {
+                                                                                                                                                                                                                                                                                                                                              const txt = (d.definition || "").trim();
+                                                                                                                                                                                                                                                                                                                                              if (!txt || isHeaderLike(txt)) return;
+                                                                                                                                                                                                                                                                                                                                                                                                                              if (posSeen[pos].includes(txt)) return;
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              posSeen[pos].push(txt);
+                                                                                                                                                                                                                                                                                                                        });
+                                                                                  });
+                                                                                const fullDefinition = posGroups
+                                                                                                                                          .map((pos) => (posSeen[pos].length ? { pos, defs: posSeen[pos].slice(0, 3) } : null))
+                                                                                                                                          .filter(Boolean);
+                                                                                return { word: it.word, pos: primary.partOfSpeech || "", definition, fullDefinition, example, distractors };
+                                          } catch (e) {
+                                                                      return { word: it.word, pos: "", definition: "", fullDefinition: [], example: "", distractors: [] };
+                                          }
+        }));
+        return results;
+}
+
+      function FullDef({ item, fallback }) {
+              const groups = item && item.fullDefinition;
+              if (Array.isArray(groups) && groups.length) {
+                              return (
+                                                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                                          {groups.map((g, i) => (
+                                                                                                                  <div key={i}>
+                                                                                                                                                                                                  <span style={{ fontStyle: "italic", opacity: 0.65, marginRight: 4 }}>{g.pos}:</span>
+                                                                                                                                                                                                  <span>{g.defs.join(" ")}</span>
+                                                                                                                    </div>
+                                                                                              ))}
+                                                        </div>
+                                              );
+              }
+                      return <>{(item && item.definition) || fallback}</>;
+      }
     
 /* ------------------------------------------------------------------ */
 /*  Bits                                                               */
@@ -601,6 +634,7 @@ function VocabDrill() {
             kind: it.word.trim().includes(" ") ? "phrase" : "word",
             pos: hit.pos || "",
             definition: hit.definition || "",
+                        fullDefinition: Array.isArray(hit.fullDefinition) ? hit.fullDefinition : [],
             example: hit.example || "",
             distractors: Array.isArray(hit.distractors) ? hit.distractors.slice(0, 3) : [],
             context: it.context || "",
@@ -645,7 +679,8 @@ function VocabDrill() {
           return {
             ...w,
             pos: hit.pos || w.pos,
-            definition: hit.definition || w.definition,
+definition: hit.definition || w.definition,
+                        fullDefinition: Array.isArray(hit.fullDefinition) ? hit.fullDefinition : w.fullDefinition,
             example: hit.example || w.example,
             distractors: Array.isArray(hit.distractors)
               ? hit.distractors.slice(0, 3)
@@ -1034,7 +1069,7 @@ function ReadView({ words, onAdd, busy, justAdded, clearJustAdded, goDrill }) {
               </span>
             </div>
             {peek.pos && <div style={{ fontSize: 12, color: T.ink3, fontStyle: "italic" }}>{peek.pos}</div>}
-            <div style={{ fontSize: 15, marginTop: 8 }}>{peek.definition || "No meaning saved yet"}</div>
+<div style={{ fontSize: 15, marginTop: 8 }}>{peek.definition ? <FullDef item={peek} fallback="No meaning saved yet" /> : "No meaning saved yet"}</div>
             {peek.example && (
               <div style={{ fontSize: 13, color: T.ink2, marginTop: 8, lineHeight: 1.6 }}>“{peek.example}”</div>
             )}
@@ -1079,7 +1114,7 @@ function AddedPanel({ items, onClose, goDrill }) {
               {w.pos && <span style={{ fontSize: 12, color: T.ink3, fontStyle: "italic" }}>{w.pos}</span>}
             </div>
             <div style={{ fontSize: 14, color: w.definition ? T.ink2 : T.bad, marginTop: 3 }}>
-              {w.definition || "Lookup failed — add the meaning in Deck"}
+                {w.definition ? <FullDef item={w} fallback="Lookup failed — add the meaning in Deck" /> : "Lookup failed — add the meaning in Deck"}
             </div>
             {w.example && (
               <div style={{ fontSize: 13, color: T.ink3, marginTop: 4, lineHeight: 1.6 }}>“{w.example}”</div>
@@ -1359,6 +1394,12 @@ const options = useMemo(() => {
 
             {showCtx && (
               <div className="px-6 py-4" style={{ borderTop: `1px solid ${T.line}`, fontSize: 14, lineHeight: 1.7, color: T.ink2 }}>
+                {Array.isArray(cur.fullDefinition) && cur.fullDefinition.length > 0 && (
+                                  <div className="mb-3">
+                                                        <Label style={{ marginBottom: 4 }}>Full meaning</Label>
+                                                        <FullDef item={cur} fallback="" />
+                                  </div>
+                                )}
                 {cur.example && (
                   <div className="mb-3">
                     <Label style={{ marginBottom: 4 }}>Example</Label>
@@ -1570,7 +1611,7 @@ function DeckView({ words, learning, mastered, update, remove, setWords, addWord
                     {w.pos && <span style={{ fontSize: 12, color: T.ink3, fontStyle: "italic" }}>{w.pos}</span>}
                   </div>
                   <div style={{ fontSize: 14, color: w.definition ? T.ink2 : T.bad, marginTop: 3 }}>
-                    {w.definition || "No meaning yet — edit to add one"}
+                    {w.definition ? <FullDef item={w} fallback="No meaning yet — edit to add one" /> : "No meaning yet — edit to add one"}
                   </div>
                   {w.example && (
                     <div style={{ fontSize: 13, color: T.ink3, marginTop: 4, lineHeight: 1.6 }}>“{w.example}”</div>
