@@ -279,7 +279,8 @@ const entries = Array.isArray(data) ? data.slice() : [];
                                     const entryMeanings = chosenEntry.meanings || [];
                                     const allMeanings = [];
                                     entries.forEach((e) => (e.meanings || []).forEach((m) => allMeanings.push(m)));
-                                    const isSkippable = (text) => {
+                                    const isHeaderLike = (t) => /^senses?\s+(referring|relating|pertaining)\s+to\b/i.test(t);
+                                    const isBadDef = (text) => {
                                                         if (!text) return true;
                                                         const t = text.trim();
                                                         if (/^\(?\s*(archaic|obsolete|rare|dated|dialectal|chiefly\s+\w+|nonstandard|informal|slang|derogatory|offensive|vulgar|humorous|poetic|colloquial|regional|uncommon)\b/i.test(t)) return true;
@@ -288,17 +289,41 @@ const entries = Array.isArray(data) ? data.slice() : [];
                                                         if (new RegExp("^to\\s+" + word.toLowerCase() + "\\.?$", "i").test(t)) return true;
                                                         return false;
                                     };
-                                    let primary = entryMeanings[0] || {};
-                                    let definition = "";
-                                    for (const m of entryMeanings) {
-                                                        const d0 = (m.definitions || [])[0];
-                                                        if (d0 && d0.definition && !isSkippable(d0.definition)) { primary = m; definition = d0.definition; break; }
+                                    const bestLocalDef = (m) => {
+                                                        const defsArr = m.definitions || [];
+                                                        let firstReal = null;
+                                                        for (const d of defsArr) {
+                                                                              if (d.definition && isHeaderLike(d.definition.trim())) continue;
+                                                                              firstReal = d;
+                                                                              break;
+                                                        }
+                                                        if (!firstReal) return { def: defsArr[0] || {}, bad: true };
+                                                        return { def: firstReal, bad: isBadDef(firstReal.definition) };
+                                    };
+                                    const candidates = entryMeanings.map((m, idx) => {
+                                                        const r = bestLocalDef(m);
+                                                        return { m, idx, richness: (m.definitions || []).length, bad: r.bad, def: r.def };
+                                    });
+                                    const nonBad = candidates.filter((c) => !c.bad);
+                                    const pool = nonBad.length ? nonBad : candidates;
+                                    const nonVerbPool = pool.filter((c) => c.m.partOfSpeech !== "verb");
+                                    const verbPool = pool.filter((c) => c.m.partOfSpeech === "verb");
+                                    const byRichness = (a, b) => b.richness - a.richness || a.idx - b.idx;
+                                    let chosen;
+                                    if (nonVerbPool.length) {
+                                                        nonVerbPool.sort(byRichness);
+                                                        const bestNonVerb = nonVerbPool[0];
+                                                        if (verbPool.length) {
+                                                                              verbPool.sort(byRichness);
+                                                                              const bestVerb = verbPool[0];
+                                                                              chosen = bestVerb.richness > 1.5 * bestNonVerb.richness ? bestVerb : bestNonVerb;
+                                                        } else chosen = bestNonVerb;
+                                    } else {
+                                                        pool.sort(byRichness);
+                                                        chosen = pool[0] || { m: {}, def: {} };
                                     }
-                                    if (!definition) {
-                                                        const d0 = (entryMeanings[0] && entryMeanings[0].definitions && entryMeanings[0].definitions[0]) || {};
-                                                        primary = entryMeanings[0] || {};
-                                                        definition = d0.definition || "";
-                                    }
+                                    const primary = chosen.m || {};
+                                    const definition = (chosen.def && chosen.def.definition) || "";
                                     const defs = primary.definitions || [];
                                     let example = (defs.find((d) => d.definition === definition) || {}).example || "";
                                     if (!example) { for (const d of defs) { if (d.example) { example = d.example; break; } } }
